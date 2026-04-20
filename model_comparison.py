@@ -313,3 +313,40 @@ plt.xlabel("Episode")
 plt.ylabel("Total Reward per Episode")
 plt.legend()
 plt.show()
+
+
+# ==============================
+# EVALUATION FUNCTION
+# ==============================
+BASE_SIZE = 9
+
+def evaluate(agent, env, episodes=50):
+    scores = []
+
+    for _ in range(episodes):
+        state, _ = env.reset()
+        done = False
+        food = 0
+        steps = 0
+
+        while not done:
+            if agent == "random":
+                action = env.action_space.sample()
+            else:
+                action, _ = agent.predict(state, deterministic=True)
+
+            state, _, done, _, info = env.step(action)
+
+            if info.get("ate_food", False):
+                food += 1
+            steps += 1
+
+        food_per_step = food / (steps + 1e-6)
+
+        # normalize relative to training grid
+        scale_factor = env.size / BASE_SIZE
+        normalized_score = food_per_step / scale_factor
+
+        scores.append(normalized_score)
+
+    return np.mean(scores)
