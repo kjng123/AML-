@@ -244,3 +244,72 @@ plt.xlabel("Obstacle Count")
 plt.ylabel("Food per Step")
 plt.legend()
 plt.show()
+
+# ==============================
+# TRAINING CURVES (SB3 CALLBACK)
+# ==============================
+
+from stable_baselines3.common.callbacks import BaseCallback
+
+class RewardLogger(BaseCallback):
+    """
+    Logs episode rewards during training for plotting learning curves.
+    """
+    def __init__(self):
+        super().__init__()
+        self.episode_rewards = []
+        self.current_rewards = 0
+
+    def _on_step(self) -> bool:
+        self.current_rewards += self.locals["rewards"][0]
+
+        # check if episode done
+        if self.locals["dones"][0]:
+            self.episode_rewards.append(self.current_rewards)
+            self.current_rewards = 0
+
+        return True
+
+
+# ==============================
+# TRAIN MODELS WITH LOGGING
+# ==============================
+train_env = SnakeEnvGym(9, obstacle_count=0)
+
+dqn_logger = RewardLogger()
+ppo_logger = RewardLogger()
+
+print("Training DQN with logging...")
+dqn_model = SB_DQN("MlpPolicy", train_env, verbose=0)
+dqn_model.learn(total_timesteps=30000, callback=dqn_logger)
+
+print("Training PPO with logging...")
+ppo_model = PPO("MlpPolicy", train_env, verbose=0)
+ppo_model.learn(total_timesteps=30000, callback=ppo_logger)
+
+
+# ==============================
+# SMOOTHING FUNCTION
+# ==============================
+def smooth(data, window=20):
+    return np.convolve(data, np.ones(window)/window, mode='valid')
+
+
+# ==============================
+# PLOT LEARNING CURVES
+# ==============================
+plt.figure(figsize=(12,6))
+
+# raw curves
+plt.plot(dqn_logger.episode_rewards, alpha=0.3, label="DQN raw")
+plt.plot(ppo_logger.episode_rewards, alpha=0.3, label="PPO raw")
+
+# smoothed curves
+plt.plot(smooth(dqn_logger.episode_rewards), linewidth=2, label="DQN smoothed")
+plt.plot(smooth(ppo_logger.episode_rewards), linewidth=2, label="PPO smoothed")
+
+plt.title("Training Learning Curves")
+plt.xlabel("Episode")
+plt.ylabel("Total Reward per Episode")
+plt.legend()
+plt.show()
