@@ -621,15 +621,17 @@ window.addEventListener('scroll',()=>{
   let interval = null;
   let useObs = false;
 
-  // ── Hamiltonian path: column-first (matches Python build_hamiltonian_path) ──
+  // ── Hamiltonian path: row-first boustrophedon ──
+  // Row 0: left→right, row 1: right→left, row 2: left→right, ...
+  // Every consecutive pair is guaranteed adjacent. Snake starts at (4,4) = index 40.
   function buildHamiltonianPath(n) {
     const path = [];
     const idxMap = {};
-    for (let c = 0; c < n; c++) {
-      const rows = c % 2 === 0
-        ? Array.from({length: n}, (_, i) => i)
-        : Array.from({length: n}, (_, i) => n - 1 - i);
-      for (const r of rows) {
+    for (let r = 0; r < n; r++) {
+      const cols = r % 2 === 0
+        ? Array.from({length: n}, (_, i) => i)          // left to right
+        : Array.from({length: n}, (_, i) => n - 1 - i); // right to left
+      for (const c of cols) {
         idxMap[r + ',' + c] = path.length;
         path.push({r, c});
       }
@@ -637,7 +639,6 @@ window.addEventListener('scroll',()=>{
     return {path, idxMap};
   }
   const {path: HAM_PATH, idxMap: HAM_IDX_MAP} = buildHamiltonianPath(GRID);
-  // DIRECTIONS matches Python: [(-1,0),(0,1),(1,0),(0,-1)] = N,E,S,W
   const DIRS = [{r:-1,c:0},{r:0,c:1},{r:1,c:0},{r:0,c:-1}];
 
   function makeSnake(agentType) {
@@ -735,31 +736,23 @@ window.addEventListener('scroll',()=>{
       return safe[0].a;
     }
     if(s.agentType==='ham'){
-      // Exact port of Python HamiltonianAgent.act()
-      // 1. Look up head position in path index map
-      const hamStep = HAM_IDX_MAP[head.r + ',' + head.c] ?? 0;
-      const nextIdx  = (hamStep + 1) % HAM_PATH.length;
-      const nextCell = HAM_PATH[nextIdx];
-      const dr = nextCell.r - head.r, dc = nextCell.c - head.c;
-      const targetDir = {r: dr, c: dc};
-      // 2. Check if target_dir is a valid single step (must be one of the 4 DIRS)
-      const targetDirIdx = DIRS.findIndex(d => d.r === targetDir.r && d.c === targetDir.c);
-      if (targetDirIdx === -1) {
-        // target is not adjacent — fall back: try straight, right, left in order
-        for (const m of moves) {
-          if (!isCol(s, {r: head.r + m.d.r, c: head.c + m.d.c})) return m.a;
-        }
-        return 0;
-      }
-      // 3. Convert absolute target direction to relative action
-      // Current direction index in DIRS
+      // Simple boustrophedon follower:
+      // 1. Find where the head sits in the precomputed path
+      const curIdx  = HAM_IDX_MAP[head.r + ',' + head.c] ?? 0;
+      const nextIdx = (curIdx + 1) % HAM_PATH.length;
+      const next    = HAM_PATH[nextIdx];
+      // 2. Absolute direction needed (guaranteed adjacent by construction)
+      const absDr = next.r - head.r, absDc = next.c - head.c;
+      // 3. Convert absolute → relative action
+      //    DIRS order: 0=N(-1,0) 1=E(0,1) 2=S(1,0) 3=W(0,-1)
+      //    actions:    0=straight 1=right 2=left
       const curDirIdx = DIRS.findIndex(d => d.r === s.dir.r && d.c === s.dir.c);
-      const diff = (targetDirIdx - curDirIdx + 4) % 4;
-      // diff==0 straight, diff==1 right turn, diff==3 left turn, diff==2 => go right
-      if (diff === 0) return 0;
-      if (diff === 1) return 1;
-      if (diff === 3) return 2;
-      return 1; // diff==2 (180), default right
+      const tgtDirIdx = DIRS.findIndex(d => d.r === absDr    && d.c === absDc);
+      const diff = (tgtDirIdx - curDirIdx + 4) % 4;
+      if (diff === 0) return 0; // straight
+      if (diff === 1) return 1; // right turn
+      if (diff === 3) return 2; // left turn
+      return 1;                 // 180° shouldn't happen on a valid path, default straight-ish
     }
     return 0;
   }
