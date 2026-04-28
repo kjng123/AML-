@@ -621,26 +621,24 @@ window.addEventListener('scroll',()=>{
   let interval = null;
   let useObs = false;
 
-  // ── Hamiltonian path generator (boustrophedon) ──
+  // ── Hamiltonian path: column-first (matches Python build_hamiltonian_path) ──
   function buildHamiltonianPath(n) {
     const path = [];
-    for (let r = 0; r < n; r++) {
-      if (r % 2 === 0) {
-        for (let c = 0; c < n; c++) path.push({r, c});
-      } else {
-        for (let c = n-1; c >= 0; c--) path.push({r, c});
+    const idxMap = {};
+    for (let c = 0; c < n; c++) {
+      const rows = c % 2 === 0
+        ? Array.from({length: n}, (_, i) => i)
+        : Array.from({length: n}, (_, i) => n - 1 - i);
+      for (const r of rows) {
+        idxMap[r + ',' + c] = path.length;
+        path.push({r, c});
       }
     }
-    return path;
+    return {path, idxMap};
   }
-  const HAM_PATH = buildHamiltonianPath(GRID);
-
-  function findHamIdx(r, c) {
-    for (let i = 0; i < HAM_PATH.length; i++) {
-      if (HAM_PATH[i].r === r && HAM_PATH[i].c === c) return i;
-    }
-    return 0;
-  }
+  const {path: HAM_PATH, idxMap: HAM_IDX_MAP} = buildHamiltonianPath(GRID);
+  // DIRECTIONS matches Python: [(-1,0),(0,1),(1,0),(0,-1)] = N,E,S,W
+  const DIRS = [{r:-1,c:0},{r:0,c:1},{r:1,c:0},{r:0,c:-1}];
 
   function makeSnake(agentType) {
     const sr = Math.floor(GRID/2), sc = Math.floor(GRID/2);
@@ -652,7 +650,6 @@ window.addEventListener('scroll',()=>{
       food_count: 0,
       steps: 0,
       alive: true,
-      hamIdx: findHamIdx(sr, sc),
       agentType,
     };
   }
@@ -738,59 +735,31 @@ window.addEventListener('scroll',()=>{
       return safe[0].a;
     }
     if(s.agentType==='ham'){
-      // Walk the Hamiltonian path. The path is a fixed boustrophedon cycle.
-      // We look ahead up to N steps to find the next path cell that is
-      // actually reachable (not blocked by snake body or obstacle).
-      // This keeps the agent moving smoothly even as the body grows.
-      const snakeSet = new Set(s.snake.slice(1).map(p=>p.r+','+p.c));
-      const obsSet   = new Set(s.obstacles.map(p=>p.r+','+p.c));
-      let target = null;
-      for (let look = 1; look <= HAM_PATH.length; look++) {
-        const idx = (s.hamIdx + look) % HAM_PATH.length;
-        const cell = HAM_PATH[idx];
-        if (!snakeSet.has(cell.r+','+cell.c) && !obsSet.has(cell.r+','+cell.c)) {
-          target = cell;
-          s.hamIdx = idx;
-          break;
+      // Exact port of Python HamiltonianAgent.act()
+      // 1. Look up head position in path index map
+      const hamStep = HAM_IDX_MAP[head.r + ',' + head.c] ?? 0;
+      const nextIdx  = (hamStep + 1) % HAM_PATH.length;
+      const nextCell = HAM_PATH[nextIdx];
+      const dr = nextCell.r - head.r, dc = nextCell.c - head.c;
+      const targetDir = {r: dr, c: dc};
+      // 2. Check if target_dir is a valid single step (must be one of the 4 DIRS)
+      const targetDirIdx = DIRS.findIndex(d => d.r === targetDir.r && d.c === targetDir.c);
+      if (targetDirIdx === -1) {
+        // target is not adjacent — fall back: try straight, right, left in order
+        for (const m of moves) {
+          if (!isCol(s, {r: head.r + m.d.r, c: head.c + m.d.c})) return m.a;
         }
-      }
-      if (!target) {
-        // totally trapped — just go straight
         return 0;
       }
-      // We need to move toward target. Use BFS shortest path one step.
-      // Build a reachability map from head, find which neighbour is on path to target.
-      const visited = {}; 
-      visited[head.r+','+head.c] = null;
-      const q = [head];
-      let found = false;
-      while (q.length && !found) {
-        const cur = q.shift();
-        for (const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-          const nr=cur.r+dr, nc=cur.c+dc, k=nr+','+nc;
-          if (nr<0||nr>=GRID||nc<0||nc>=GRID) continue;
-          if (snakeSet.has(k)||obsSet.has(k)||k in visited) continue;
-          visited[k] = {r:cur.r, c:cur.c};
-          if (nr===target.r && nc===target.c) { found=true; break; }
-          q.push({r:nr,c:nc});
-        }
-      }
-      // trace back to find the first step from head
-      let step = target;
-      while (step && visited[step.r+','+step.c] &&
-             !(visited[step.r+','+step.c].r===head.r && visited[step.r+','+step.c].c===head.c)) {
-        step = visited[step.r+','+step.c];
-      }
-      if (!step || !visited[step.r+','+step.c]) {
-        // can't reach target, pick any safe move
-        const safe=moves.filter(m=>!isCol(s,{r:head.r+m.d.r,c:head.c+m.d.c}));
-        return safe.length ? safe[0].a : 0;
-      }
-      const neededDr = step.r - head.r, neededDc = step.c - head.c;
-      for(const m of moves){
-        if(m.d.r===neededDr && m.d.c===neededDc) return m.a;
-      }
-      return 0;
+      // 3. Convert absolute target direction to relative action
+      // Current direction index in DIRS
+      const curDirIdx = DIRS.findIndex(d => d.r === s.dir.r && d.c === s.dir.c);
+      const diff = (targetDirIdx - curDirIdx + 4) % 4;
+      // diff==0 straight, diff==1 right turn, diff==3 left turn, diff==2 => go right
+      if (diff === 0) return 0;
+      if (diff === 1) return 1;
+      if (diff === 3) return 2;
+      return 1; // diff==2 (180), default right
     }
     return 0;
   }
