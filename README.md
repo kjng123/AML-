@@ -31,9 +31,3 @@ The HTML file is fully self-contained — all figures are embedded and the live 
 
 Generalization performance is reported as **food/step normalized against a Hamiltonian cycle baseline** (for size generalization) and against a random baseline (for obstacle generalization), to correct for grid-geometry artifacts in raw food/step comparisons.
 
-## References
-
-- Almalki & Wocjan (2019) — DQN/SARSA in Snake
-- Cobbe et al. (2019) — CoinRun & Procgen generalization benchmarks
-- Narvekar et al. (2020) — Curriculum learning survey
-- Weinberger, Liang & Chen (2024) — Hamiltonian cycle baseline in Snake
